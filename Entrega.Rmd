@@ -1,6 +1,9 @@
 ---
-title: "questao_1"
+title: "atividade data engineer greenpeace"
 output:
+  pdf_document: default
+  keep_md: yes
+  warnings: no
   html_document: default
 date: "`r Sys.Date()`"
 ---
@@ -9,22 +12,184 @@ date: "`r Sys.Date()`"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+## Pacotes Necessários
+```{r, warning=FALSE}
+library(dplyr)
+library(bigrquery)
+library(xtable)
+library(httr)
+library(jsonlite)
+library(googledrive)
 ```
 
-## Including Plots
 
-You can also embed plots, for example:
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+## Exercício 1
+
+### 1.
+
+```{r}
+# Auth in google account
+bq_auth()
+
+# Store the project ID
+projectid = "gp-data-engineer"
+
+# Set your query
+sql <- "SELECT * 
+FROM `bigquery-public-data.fda_food.food_events` 
+WHERE consumer_gender = 'Male'
+ORDER BY date_created DESC"
+
+# Run the query; this returns a bq_table object that you can query further
+tb <- bq_project_query(projectid, sql)
+
+# Store the first 100 rows of the data in a tibble
+sample <-bq_table_download(tb, n_max = 100)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+#### Exemplo que a tabela foi importada com sucesso limitada a 100 observações via lazy query
+
+```{r}
+sample
+```
+
+### 2.1
+
+```{r}
+sql_A <- "SELECT 
+  reaction_type, 
+  COUNT(*) as reaction_count
+FROM (
+  SELECT 
+    SPLIT(reactions, ',') as reaction_types
+  FROM `bigquery-public-data.fda_food.food_events`
+), UNNEST(reaction_types) as reaction_type
+GROUP BY reaction_type
+ORDER BY reaction_count DESC;
+"
+# Run the query; this returns a bq_table object that you can query further
+tb_A <- bq_project_query(projectid, sql_A)
+
+# Lazy query to download query informations
+sample_A <-bq_table_download(tb_A, n_max = 1)
+
+sample_A
+```
+
+### 2.2
+
+```{r}
+# letra B
+
+sql_B <- "SELECT
+  products_industry_name,
+  COUNT(*) AS death_count
+FROM
+  `bigquery-public-data.fda_food.food_events`
+WHERE
+  products_industry_name IS NOT NULL
+  AND LOWER(reactions) LIKE '%death%'
+GROUP BY
+  products_industry_name
+ORDER BY
+  death_count DESC"
+# Run the query; this returns a bq_table object that you can query further
+tb_B <- bq_project_query(projectid, sql_B)
+
+# Store the first 100 rows of the data in a tibble
+sample_B <-bq_table_download(tb_B, n_max = 1)
+
+sample_B
+```
+
+### 2.3
+
+```{r}
+# letra C
+
+sql_C <- "SELECT
+  reactions,
+  COUNT(*) AS reaction_count
+FROM
+  (
+    SELECT
+      products_industry_name,
+      SPLIT(reactions, ',') AS reactionss
+    FROM
+      `bigquery-public-data.fda_food.food_events`
+    WHERE
+      lower(products_industry_name) LIKE '%cosmetics%'
+      AND consumer_age BETWEEN 18 AND 25
+  ), UNNEST(reactionss) AS reactions
+GROUP BY
+  reactions
+ORDER BY
+  reaction_count DESC"
+# Run the query; this returns a bq_table object that you can query further
+tb_C <- bq_project_query(projectid, sql_C)
+
+# Store the first 100 rows of the data in a tibble
+sample_C <-bq_table_download(tb_C, n_max = 3)
+
+sample_C
+```
+
+## Exercício 2
+
+### Passo 1 - gerar uma tabela com 1000 usuários brasileiros
+
+```{r}
+# # Function for user in API
+# get_random_user <- function() {
+#   # Make the API request
+#   response <- httr::GET("https://randomuser.me/api/?nat=BR")
+#   # Parse the JSON response
+#   json <- jsonlite::fromJSON(httr::content(response, "text"), simplifyDataFrame = TRUE)
+#   # Extract the user data
+#   user <- json$results
+#   return(user)
+# }
+# 
+# # Single user
+# users <- list()
+# for (i in 1:1000) {
+#   users[[i]] <- get_random_user()
+# }
+# 
+# # Convert to df
+# users_df <- dplyr::bind_rows(users)
+```
+
+## Exercício 3
+
+### 3.1
+
+- Para garantir que o usuário "gp_user" tenha acesso a tabela "press_data" hospedada no AWS redshift é necessário ter uma conta com privilégios de administrador e rodar o seguinte comando no console:
+
+```
+GRANT SELECT ON TABLE press_data TO gp_user;
+```
+O comando GRANT SELECT garante que esta tabela press_data poderá ser consultada pelo usuário gp_user.
+Aqui está a documentação em que a aws redshift informa sobre [permissões a usuários](https://docs.aws.amazon.com/redshift/latest/dg/r_GRANT.html) além de [alguns exemplos](https://docs.aws.amazon.com/redshift/latest/dg/r_GRANT-examples.html)
+
+### 3.2
+
+- Quando a tabela é reescrita tendo feito o comando DROP é necessário garantir que o schema sempre tenha as permissões anteriores. Herdando sempre que for feito como no código abaixo:
+
+```
+ALTER DEFAULT PRIVILEGES IN SCHEMA schema_press_data
+GRANT SELECT ON TABLES TO gp_user;
+
+GRANT SELECT ON TABLE schema_press_data.press_data TO gp_user;
+```
+A primeira linha de comando garante que os privilégios para o schema "schema_press_data" onde está a tabela press_data sejam herdados. E para garantir novamente a tabela "press_data" é selecionada novamente. Os exemplos buscados seguem os padrões da [documentação sobre privilégios](https://docs.aws.amazon.com/redshift/latest/dg/r_ALTER_DEFAULT_PRIVILEGES.html)
+
+### 3.3
+
+- Para mudar o proprietário de uma tabela deve-se usar o comando
+
+```
+ALTER TABLE press_data OWNER TO gp_new_user;
+```
+Foi usada a mesma tabela que nos exemplos anteriores. Uma observação que deve ser feita é que somente usuários que tenham os privilégios necessários podem alterar o acesso de cada usuário, como por exemplo superusuários. Os exemplos de como realizar a alteração estão [neste link](https://docs.aws.amazon.com/redshift/latest/dg/r_ALTER_TABLE.html)

@@ -9,8 +9,7 @@ FROM (
   FROM `bigquery-public-data.fda_food.food_events`
 ), UNNEST(reaction_types) as reaction_type
 GROUP BY reaction_type
-ORDER BY reaction_count DESC
-LIMIT 1;
+ORDER BY reaction_count DESC;
 "
 # Run the query; this returns a bq_table object that you can query further
 tb_A <- bq_project_query(projectid, sql_A)
